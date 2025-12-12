@@ -1,6 +1,7 @@
 const express = require("express");
 const Room = require("../models/Room");
 const Message = require("../models/Message");
+const User = require("../models/User");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
@@ -129,5 +130,64 @@ router.post("/rooms/private", protect, async (req, res) => {
     }
 });
 
-module.exports = router;
 
+//@route POST /api/chat/rooms/private-by-username
+//@desc Create or get private chat by target username
+//@access private
+
+router.post("/rooms/private-by-username", protect, async (req, res) => {
+    try {
+        const { targetUsername } = req.body;
+
+        // 1. Find the target user by username
+        const targetUser = await User.findOne({ username: targetUsername });
+
+        if (!targetUser) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        // 2. Prevent initiating chat with self
+        if (targetUser._id.toString() === req.user._id.toString()) {
+            return res.status(400).json({
+                success: false,
+                message: "Cannot start a private chat with yourself.",
+            });
+        }
+
+        const userId = targetUser._id;
+        
+        // 3. Existing logic to create or retrieve the private room
+        let room = await Room.findOne({
+            type: 'private',
+            participants: { $all: [req.user._id, userId], $size: 2}
+        })
+        .populate('participants', 'username email avatar status');
+
+        if(!room){
+            room = await Room.create({
+                name: 'Private Chat',
+                type: 'private',
+                participants: [req.user._id, userId]
+            });
+
+            await room.populate('participants', 'username email avatar status');
+        }
+        
+        res.json({
+            success: true,
+            room
+        });
+    }
+    catch (error){
+        console.error("Error creating private chat by username:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+module.exports = router;
